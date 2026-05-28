@@ -7,14 +7,28 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from media.models import (
+    MediaAsset,
+    Thumbnail,
+    StreamingManifest,
+    MediaRepresentation,
+    ProcessingJob,
+    OriginalMediaFile
+)
 from utils.database import get_session_factory
-
 
 app = typer.Typer(help="Install database triggers and functions")
 
 
 def get_models_with_logic():
-    return []
+    return [
+        MediaAsset,
+        OriginalMediaFile,
+        ProcessingJob,
+        MediaRepresentation,
+        StreamingManifest,
+        Thumbnail,
+    ]
 
 
 async def execute_sql_safe(session, sql_list, description):
