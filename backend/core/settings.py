@@ -31,12 +31,10 @@ class Settings(BaseSettings):
     SMTP_DEBUG: bool
     USE_CREDENTIALS: bool
 
-    MINIO_RESEARCH_PAPER_BUCKET_NAME: str
-    MINIO_READING_MATERIAL_BUCKET_NAME: str
-    MINIO_PAST_PAPER_BUCKET_NAME: str
-    MINIO_ROOT_USER: str
-    MINIO_ROOT_PASSWORD: str
-    MINIO_ENDPOINT: str
+    RUSTFS_ACCESS_KEY: str
+    RUSTFS_SECRET_KEY: str
+    RUSTFS_BUCKET_NAME: str
+    RUSTFS_ENDPOINT: str
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_PATH),
@@ -59,5 +57,3 @@ def get_settings() -> Settings:
 
 if __name__ == "__main__":
     settings = get_settings()
-    # print(f"Loaded APP_NAME setting: {settings.APP_NAME}")
-    # print(f"Loaded DATABASE_URL setting: {settings.DATABASE_URL}")
