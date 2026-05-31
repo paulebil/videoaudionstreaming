@@ -135,7 +135,6 @@ class MediaAsset(BaseUtilityModel):
     __search_fields__ = [
         "title",
         "description",
-        "media_type",
     ]
 
     __ordering_fields__ = [
