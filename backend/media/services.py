@@ -2,8 +2,9 @@ from datetime import datetime, timezone
 import hashlib
 import uuid
 
+from sqlalchemy import func, select
+
 from fastapi import HTTPException, UploadFile, status
-from fastapi_pagination.ext.sqlalchemy import paginate
 from fastapi_pagination import Page
 
 from .models import (
@@ -83,41 +84,46 @@ class MediaAssetService:
             ordering=filters.ordering,
         )
 
-
     async def list_media_assets(self, filters: MediaAssetListFilters):
+
         stmt = self.get_filtered_statement(filters)
 
-        page = await paginate(
-            self.media_asset_repository.session,
-            stmt,
-        )
+        page_num = getattr(filters, "page", 1)
+        page_size = getattr(filters, "size", 50)
+        offset = (page_num - 1) * page_size
 
-        items = []
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = await self.media_asset_repository.session.scalar(count_stmt)
 
-        for asset in page.items: 
-            original_file = getattr(asset, "original_file", None)
+        paginated_stmt = stmt.offset(offset).limit(page_size)
+        result = await self.media_asset_repository.session.execute(paginated_stmt)
+        items = list(result.scalars().all())
 
+        processed_items = []
+        for asset in items:  
             file_url = None
-            if original_file:
+            if hasattr(asset, "original_file") and asset.original_file:
                 file_url = await self.storage_service.generate_presigned_url(
                     bucket=None,
-                    key=original_file.storage_key,
+                    key=asset.original_file.storage_key,
                     expires=3600,
                 )
 
-            items.append(
-                MediaAssetResponse.model_validate(asset).model_copy(
-                    update={"file_url": file_url}
-                )
-            )
+            response = MediaAssetResponse.model_validate(asset)
+            response.file_url = file_url
+            processed_items.append(response)
+
+        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
 
         return Page(
-            items=items,
-            total=page.total,
-            page=page.page,
-            size=page.size,
+            items=processed_items,
+            total=total,
+            page=page_num,
+            size=page_size,
+            pages=total_pages,
         )
     
+
     async def get_media_asset(self, identifier: str):
         media_asset = await self.media_asset_repository.get_by_identifier(identifier)
 
