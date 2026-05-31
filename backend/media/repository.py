@@ -1,5 +1,6 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from utils.repository import BaseRepository
 
@@ -18,6 +19,10 @@ from .models import (
 class MediaAssetRepository(BaseRepository[MediaAsset]):
     def __init__(self, session: AsyncSession):
         super().__init__(MediaAsset, session)
+
+
+    def apply_joins(self, stmt):
+        return stmt.options(selectinload(MediaAsset.original_file))
 
     async def get_by_title(
         self,
@@ -139,6 +144,23 @@ class ProcessingJobRepository(BaseRepository[ProcessingJob]):
             ProcessingJob.status == ProcessingJobStatus.FAILED
         )
 
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_by_media_asset_id(self, media_asset_id: int) -> list[ProcessingJob]:
+        stmt = select(ProcessingJob).where(
+            ProcessingJob.media_asset_id == media_asset_id
+        )
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
+
+    async def get_queued_jobs(self, limit: int = 10) -> list[ProcessingJob]:
+        stmt = (
+            select(ProcessingJob)
+            .where(ProcessingJob.status == ProcessingJobStatus.QUEUED)
+            .order_by(ProcessingJob.created_at)
+            .limit(limit)
+        )
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 

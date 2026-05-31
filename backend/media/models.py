@@ -13,8 +13,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import BIGINT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
 
-from utils.models import BaseUtilityModel
-
+from utils.models import BaseUtilityModel, SoftDeleteMixin
 
 class MediaType(str, Enum):
     VIDEO = "video"
@@ -205,6 +204,8 @@ class OriginalMediaFile(BaseUtilityModel):
         back_populates="original_file",
     )
 
+    __slug_source_field__ = "filename"
+
     @declared_attr.directive
     def __table_args__(cls):
         return (
@@ -216,7 +217,7 @@ class OriginalMediaFile(BaseUtilityModel):
         )
 
 
-class ProcessingJob(BaseUtilityModel):
+class ProcessingJob(SoftDeleteMixin):
     __tablename__ = "processing_jobs"
     __abstract__ = False
 
@@ -285,7 +286,7 @@ class ProcessingJob(BaseUtilityModel):
         )
 
 
-class MediaRepresentation(BaseUtilityModel):
+class MediaRepresentation(SoftDeleteMixin):
     __tablename__ = "media_representations"
     __abstract__ = False
 
@@ -371,7 +372,7 @@ class MediaRepresentation(BaseUtilityModel):
         )
 
 
-class StreamingManifest(BaseUtilityModel):
+class StreamingManifest(SoftDeleteMixin):
     __tablename__ = "streaming_manifests"
     __abstract__ = False
 
@@ -413,7 +414,7 @@ class StreamingManifest(BaseUtilityModel):
         )
 
 
-class Thumbnail(BaseUtilityModel):
+class Thumbnail(SoftDeleteMixin):
     __tablename__ = "thumbnails"
     __abstract__ = False
 

@@ -44,6 +44,9 @@ class BaseRepository(Generic[T]):
     def _supports_full_text(self) -> bool:
         return hasattr(self.model, "search_vector")
 
+    def apply_joins(self, stmt: Select) -> Select:
+        return stmt
+
     def _base_query(self, include_deleted: bool = False) -> Select:
         """Create base query with soft delete filter"""
         stmt = select(self.model)
@@ -150,6 +153,8 @@ class BaseRepository(Generic[T]):
         Does NOT apply limit/offset - let pagination library handle that.
         """
         stmt = self._base_query(include_deleted=include_deleted)
+
+        stmt = self.apply_joins(stmt)
 
         if filters:
             stmt = self.apply_filters(stmt, filters)
