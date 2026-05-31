@@ -26,6 +26,17 @@ class StorageService(ABC):
         pass
 
     @abstractmethod
+    def copy_file(
+        self,
+        source_bucket: str,
+        source_key: str,
+        destination_bucket: str,
+        destination_key: str,
+    ) -> Dict:
+        """Copy a file from one location to another within the storage"""
+        pass
+
+    @abstractmethod
     def generate_presigned_url(
         self, bucket: str, key: str, expires: int = 3600, method: str = "get_object"
     ) -> str:
@@ -45,9 +56,9 @@ class S3StorageService(StorageService):
     def __init__(self):
 
         s3_config = {
-            "signature_version": "s3v4",  
+            "signature_version": "s3v4",
             "s3": {
-                "addressing_style": "path", 
+                "addressing_style": "path",
             },
         }
 
@@ -104,6 +115,61 @@ class S3StorageService(StorageService):
             "bucket": bucket,
             "key": key,
         }
+
+    def copy_file(
+        self,
+        source_bucket: str,
+        source_key: str,
+        destination_bucket: str,
+        destination_key: str,
+    ) -> Dict:
+        """
+        Copy a file from one location to another within the storage
+
+        Args:
+            source_bucket: Source bucket name
+            source_key: Source object key/path
+            destination_bucket: Destination bucket name (use None for same as source)
+            destination_key: Destination object key/path
+
+        Returns:
+            Dict with copy result information
+        """
+        source_bucket = source_bucket or self.default_bucket
+        destination_bucket = destination_bucket or source_bucket
+
+        try:
+            # Construct copy source
+            copy_source = {"Bucket": source_bucket, "Key": source_key}
+
+            # Perform the copy operation
+            response = self.internal_client.copy_object(
+                CopySource=copy_source,
+                Bucket=destination_bucket,
+                Key=destination_key,
+            )
+
+            return {
+                "source_bucket": source_bucket,
+                "source_key": source_key,
+                "destination_bucket": destination_bucket,
+                "destination_key": destination_key,
+                "etag": response.get("CopyObjectResult", {}).get("ETag", ""),
+                "success": True,
+            }
+
+        except ClientError as e:
+            if e.response["Error"]["Code"] == "NoSuchKey":
+                raise Exception(
+                    f"Source file {source_key} does not exist in bucket {source_bucket}"
+                )
+            raise Exception(
+                f"Failed to copy file from {source_key} to {destination_key}: {str(e)}"
+            )
+        except Exception as e:
+            raise Exception(
+                f"Failed to copy file from {source_key} to {destination_key}: {str(e)}"
+            )
 
     def generate_presigned_url(
         self, bucket: str, key: str, expires: int = 3600, method: str = "get_object"
@@ -187,6 +253,41 @@ class S3StorageService(StorageService):
                 f"Failed to delete file {key} from bucket {bucket}: {str(e)}"
             )
 
+    def move_file(
+        self,
+        source_bucket: str,
+        source_key: str,
+        destination_bucket: str,
+        destination_key: str,
+    ) -> Dict:
+        """
+        Move a file from one location to another (copy then delete)
+
+        Args:
+            source_bucket: Source bucket name
+            source_key: Source object key/path
+            destination_bucket: Destination bucket name
+            destination_key: Destination object key/path
+
+        Returns:
+            Dict with move result information
+        """
+        # First copy the file
+        copy_result = self.copy_file(
+            source_bucket=source_bucket,
+            source_key=source_key,
+            destination_bucket=destination_bucket,
+            destination_key=destination_key,
+        )
+
+        # Then delete the source
+        self.delete_file(source_bucket, source_key)
+
+        return {
+            **copy_result,
+            "moved": True,
+        }
+
 
 class AsyncStorageService:
     """Async wrapper for S3StorageService"""
@@ -206,6 +307,38 @@ class AsyncStorageService:
         """Async wrapper for upload_file"""
         return await run_in_threadpool(
             self.storage.upload_file, bucket, key, file_obj, content_type
+        )
+
+    async def copy_file(
+        self,
+        source_bucket: str,
+        source_key: str,
+        destination_bucket: str,
+        destination_key: str,
+    ) -> Dict:
+        """Async wrapper for copy_file"""
+        return await run_in_threadpool(
+            self.storage.copy_file,
+            source_bucket,
+            source_key,
+            destination_bucket,
+            destination_key,
+        )
+
+    async def move_file(
+        self,
+        source_bucket: str,
+        source_key: str,
+        destination_bucket: str,
+        destination_key: str,
+    ) -> Dict:
+        """Async wrapper for move_file (copy + delete)"""
+        return await run_in_threadpool(
+            self.storage.move_file,
+            source_bucket,
+            source_key,
+            destination_bucket,
+            destination_key,
         )
 
     async def generate_presigned_url(

@@ -6,6 +6,7 @@ from fastapi import (
     UploadFile,
     File,
     Form,
+    BackgroundTasks,  
 )
 from fastapi_pagination import Page
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +16,7 @@ from utils.s3storage import (
     S3StorageService,
     AsyncStorageService,
 )
+from utils.logging import setup_logging
 
 from .models import MediaType
 from .repository import (
@@ -30,11 +32,16 @@ from .schemas import (
 )
 from .services import MediaAssetService
 
-storage_service = AsyncStorageService(S3StorageService())
+setup_logging()
+
+
+def get_storage_service() -> AsyncStorageService:
+    return AsyncStorageService(S3StorageService())
 
 
 def get_media_asset_service(
     session: AsyncSession = Depends(get_session),
+    storage_service: AsyncStorageService = Depends(get_storage_service),
 ) -> MediaAssetService:
     return MediaAssetService(
         media_asset_repository=MediaAssetRepository(session),
@@ -48,9 +55,9 @@ media_asset_router = APIRouter(
     prefix="/media-assets",
     tags=["Media Assets"],
     responses={
-        404: {
-            "description": "Not found",
-        }
+        404: {"description": "Not found"},
+        413: {"description": "File too large"},
+        415: {"description": "Unsupported media type"},
     },
 )
 
@@ -68,13 +75,10 @@ async def list_media_assets(
     List media assets.
 
     Examples:
-
-    ?page=1
-    ?size=20
-    ?media_type=video
-    ?search=fastapi
+    - `?page=1&size=20`
+    - `?media_type=video`
+    - `?search=fastapi`
     """
-
     return await service.list_media_assets(filters)
 
 
@@ -90,11 +94,10 @@ async def create_media_asset(
     """
     Create media asset metadata only.
 
-    Content-Type:
-    application/json
+    Content-Type: application/json
     """
-
     return await service.create_media_asset_only(data)
+
 
 @media_asset_router.post(
     "/upload",
@@ -102,6 +105,7 @@ async def create_media_asset(
     response_model=MediaAssetResponse,
 )
 async def upload_media_asset(
+    background_tasks: BackgroundTasks,
     title: str = Form(...),
     description: str | None = Form(None),
     media_type: MediaType = Form(...),
@@ -112,10 +116,12 @@ async def upload_media_asset(
     """
     Upload media file and create asset.
 
-    Content-Type:
-    multipart/form-data
-    """
+    Content-Type: multipart/form-data
 
+    Supported formats:
+    - Video: MP4, MPEG, QuickTime (max 1GB)
+    - Audio: MP3, MP4, WAV (max 100MB)
+    """
     payload = MediaAssetCreate(
         title=title,
         description=description,
@@ -126,6 +132,31 @@ async def upload_media_asset(
     return await service.create_media_asset_with_file(
         data=payload,
         file=file,
+        background_tasks=background_tasks,
+    )
+
+
+@media_asset_router.put(
+    "/{identifier}/file",
+    status_code=status.HTTP_200_OK,
+    response_model=MediaAssetResponse,
+)
+async def replace_media_asset_file(
+    identifier: str,
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    service: MediaAssetService = Depends(get_media_asset_service),
+):
+    """
+    Replace the file for an existing media asset.
+
+    The old file will be deleted from storage after successful upload.
+    A new processing job will be created for the new file.
+    """
+    return await service.update_media_asset_file(
+        identifier=identifier,
+        file=file,
+        background_tasks=background_tasks,
     )
 
 
@@ -138,6 +169,7 @@ async def get_media_asset(
     identifier: str,
     service: MediaAssetService = Depends(get_media_asset_service),
 ):
+    """Get media asset by ID, UUID, or slug"""
     return await service.get_media_asset(identifier)
 
 
@@ -151,10 +183,8 @@ async def update_media_asset(
     data: MediaAssetUpdate,
     service: MediaAssetService = Depends(get_media_asset_service),
 ):
-    return await service.update_media_asset(
-        identifier,
-        data,
-    )
+    """Update media asset metadata only (title, description, etc.)"""
+    return await service.update_media_asset(identifier, data)
 
 
 @media_asset_router.delete(
@@ -165,10 +195,9 @@ async def delete_media_asset(
     identifier: str,
     service: MediaAssetService = Depends(get_media_asset_service),
 ):
-
-    await service.delete_media_asset(
-        identifier,
-        hard=False,
-    )
-
+    """
+    Soft delete media asset by default.
+    Use `?hard=true` for permanent deletion.
+    """
+    await service.delete_media_asset(identifier, hard=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
