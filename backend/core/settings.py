@@ -36,15 +36,17 @@ class Settings(BaseSettings):
     RUSTFS_BUCKET_NAME: str
     RUSTFS_ENDPOINT: str
 
-        # File upload settings
+    # File upload settings
     MAX_VIDEO_SIZE: int = 1024 * 1024 * 1024  # 1GB
     MAX_AUDIO_SIZE: int = 100 * 1024 * 1024   # 100MB
     ALLOWED_VIDEO_TYPES: list = ["video/mp4", "video/mpeg", "video/quicktime"]
     ALLOWED_AUDIO_TYPES: list = ["audio/mpeg", "audio/mp4", "audio/wav"]
-    
+
     USE_BACKGROUND_TASKS: bool = True
     PRESIGNED_URL_EXPIRY: int = 3600
-    
+
+    REDIS_URL: str
+
     # Logging
     LOG_LEVEL: str = "INFO"
 

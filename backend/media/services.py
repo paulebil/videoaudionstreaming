@@ -32,6 +32,10 @@ from utils.s3storage import AsyncStorageService
 from utils.validators import FileValidator
 from core.settings import get_settings
 
+from utils.queue import media_queue
+from .workers import process_media_asset
+
+
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
@@ -323,6 +327,11 @@ class MediaAssetService:
                     created_asset.id,
                     final_storage_key,
                 )
+                media_queue.enqueue(
+                    process_media_asset,
+                    created_asset.id,
+                    final_storage_key,
+                )
 
             logger.info(f"Successfully created media asset {created_asset.id}")
 
@@ -458,7 +467,6 @@ class MediaAssetService:
         logger.info(f"Updated media asset: {updated.id}")
 
         return MediaAssetResponse.model_validate(updated, from_attributes=True)
-
 
     async def update_media_asset_file(
         self,
