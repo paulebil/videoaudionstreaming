@@ -11,6 +11,7 @@ ENV_PATH = BASE_DIR / ".env"
 class Settings(BaseSettings):
     APP_NAME: str
     DATABASE_URL: str
+    SYNC_DATABASE_URL: str
     FRONTEND_HOST: str
 
     # JWT Secret key

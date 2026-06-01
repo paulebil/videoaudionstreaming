@@ -12,26 +12,24 @@ from core.settings import get_settings
 logger = logging.getLogger(__name__)
 settings = get_settings()
 
-# Redis connection
 redis_conn = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 
-# Create queues with different priorities
 media_queue = Queue(
     "media",
     connection=redis_conn,
-    default_timeout=3600,  # 1 hour default timeout
+    default_timeout=3600,  
 )
 
 thumbnail_queue = Queue(
     "thumbnails",
     connection=redis_conn,
-    default_timeout=1800,  # 30 minutes
+    default_timeout=1800,  
 )
 
 waveform_queue = Queue(
     "waveform",
     connection=redis_conn,
-    default_timeout=900,  # 15 minutes
+    default_timeout=900,  
 )
 
 
@@ -68,9 +66,9 @@ class QueueService:
                 process_media_asset,
                 args=(asset_id, storage_key, media_type),
                 job_timeout=job_timeout,
-                result_ttl=86400,  # Keep results for 24 hours
-                failure_ttl=86400,  # Keep failures for 24 hours
-                retry=3,  # Retry 3 times on failure
+                result_ttl=86400,  
+                failure_ttl=86400,  
+                retry=3,  
                 description=f"Process {media_type} asset {asset_id}",
             )
             return job
@@ -149,7 +147,7 @@ class QueueService:
     def set_job_progress(self, job_id: str, progress: int):
         """Set job progress in Redis"""
         progress_key = f"job:{job_id}:progress"
-        self.redis_conn.setex(progress_key, 3600, progress)  # Expires in 1 hour
+        self.redis_conn.setex(progress_key, 3600, progress)  
 
     def get_queue_stats(self) -> Dict[str, Any]:
         """Get statistics for all queues"""
@@ -158,7 +156,7 @@ class QueueService:
             stats[name] = {
                 "count": queue.count,
                 "is_empty": queue.is_empty,
-                "jobs": [job.id for job in queue.get_jobs()[:10]],  # Last 10 jobs
+                "jobs": [job.id for job in queue.get_jobs()[:10]], 
             }
         return stats
 
