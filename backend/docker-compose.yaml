@@ -34,6 +34,36 @@ services:
     environment:
       ADMINER_DEFAULT_SERVER: postgres
 
+  redis:
+    image: docker.io/library/redis:7-alpine
+    container_name: videoaudionstreaming-redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - videoaudionstreaming_redis_data:/data
+    command: >
+      redis-server
+      --appendonly yes
+      --save 60 1000
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redisinsight:
+    image: docker.io/redis/redisinsight:latest
+    container_name: videoaudionstreaming-redisinsight
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "5540:5540"
+    volumes:
+      - videoaudionstreaming_redisinsight_data:/data
+
   rustfs:
     image: docker.io/rustfs/rustfs:latest
     container_name: videoaudionstreaming-rustfs
@@ -55,3 +85,5 @@ services:
 volumes:
   videoaudionstreaming_postgres_data:
   videoaudionstreaming_rustfs_data:
+  videoaudionstreaming_redis_data:
+  videoaudionstreaming_redisinsight_data:
