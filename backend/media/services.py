@@ -3,7 +3,6 @@ import hashlib
 import uuid
 import logging
 from typing import Optional, Dict, Any
-from contextlib import asynccontextmanager
 
 from sqlalchemy import func, select
 from fastapi import HTTPException, UploadFile, status, BackgroundTasks
@@ -16,6 +15,7 @@ from .models import (
     MediaAssetStatus,
     ProcessingJobType,
     ProcessingJobStatus,
+    MediaType,
 )
 from .repository import (
     MediaAssetRepository,
@@ -31,10 +31,8 @@ from .schemas import (
 from utils.s3storage import AsyncStorageService
 from utils.validators import FileValidator
 from core.settings import get_settings
-
-from utils.queue import media_queue
-from .workers import process_media_asset
-
+from utils.queue import queue_service
+from media.paths import create_media_paths
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -53,21 +51,6 @@ class MediaAssetService:
         self.processing_job_repository = processing_job_repository
         self.storage_service = storage_service
         self._url_cache: Dict[str, tuple[str, datetime]] = {}
-
-    async def _generate_storage_key(
-        self,
-        media_asset_id: int,
-        filename: str,
-        media_type: str,
-        is_temp: bool = False,
-    ) -> str:
-        """Generate storage key for file"""
-        timestamp = datetime.now(timezone.utc).strftime("%Y/%m/%d/%H%M%S")
-        unique_id = str(uuid.uuid4())[:8]
-
-        prefix = "temp" if is_temp else f"{media_type}s"
-
-        return f"{prefix}/{timestamp}/{media_asset_id}_{unique_id}_{filename}"
 
     async def _compute_file_hash(
         self,
@@ -104,14 +87,13 @@ class MediaAssetService:
     ) -> None:
         """Cache presigned URL"""
         cache_key = f"{storage_key}_{expires}"
-        expiry = datetime.now() + timedelta(seconds=expires - 60)  
+        expiry = datetime.now() + timedelta(seconds=expires - 60)
         self._url_cache[cache_key] = (url, expiry)
 
     async def _get_presigned_url_with_cache(
         self, storage_key: str, expires: int = 3600
     ) -> str:
         """Get presigned URL with caching"""
-
         cached_url = await self._get_cached_presigned_url(storage_key, expires)
         if cached_url:
             return cached_url
@@ -123,7 +105,6 @@ class MediaAssetService:
         )
 
         await self._cache_presigned_url(storage_key, url, expires)
-
         return url
 
     def get_filtered_statement(self, filters: MediaAssetListFilters):
@@ -202,7 +183,7 @@ class MediaAssetService:
         file: UploadFile,
         background_tasks: BackgroundTasks,
     ):
-        """Create media asset with file upload - improved with validation and temp storage"""
+        """Create media asset with file upload using MediaPaths for storage"""
 
         # Validate input
         FileValidator.validate_title(data.title)
@@ -230,7 +211,6 @@ class MediaAssetService:
                 existing_file.media_asset_id
             )
             if existing_asset:
-                # Return existing asset instead of creating duplicate
                 return MediaAssetResponse.model_validate(existing_asset)
 
         # Create media asset with UPLOADING status
@@ -250,13 +230,12 @@ class MediaAssetService:
             created_asset = await self.media_asset_repository.create(media_asset)
             await self.media_asset_repository.session.flush()
 
-            # Upload to temporary location
-            temp_storage_key = await self._generate_storage_key(
-                media_asset_id=created_asset.id,
-                filename=file.filename,
-                media_type=data.media_type.value,
-                is_temp=True,
-            )
+            # Create MediaPaths for deterministic paths
+            paths = create_media_paths(created_asset)
+
+            # Generate temp key and final key
+            temp_storage_key = f"temp/{uuid.uuid4()}/{file.filename}"
+            final_storage_key = paths.original(file.filename)
 
             logger.info(f"Uploading file to temp location: {temp_storage_key}")
             await self.storage_service.upload_file(
@@ -264,14 +243,6 @@ class MediaAssetService:
                 key=temp_storage_key,
                 file_obj=file.file,
                 content_type=file.content_type or "application/octet-stream",
-            )
-
-            # Move to final location
-            final_storage_key = await self._generate_storage_key(
-                media_asset_id=created_asset.id,
-                filename=file.filename,
-                media_type=data.media_type.value,
-                is_temp=False,
             )
 
             logger.info(f"Moving file from temp to final: {final_storage_key}")
@@ -320,22 +291,31 @@ class MediaAssetService:
                 final_storage_key, expires=settings.PRESIGNED_URL_EXPIRY
             )
 
-            # Add background task for actual processing
+            # Enqueue background processing using QueueService
             if settings.USE_BACKGROUND_TASKS:
-                background_tasks.add_task(
-                    self._process_media_asset_background,
-                    created_asset.id,
-                    final_storage_key,
+                # Calculate timeout as a plain integer
+                timeout_value = 3600 if data.media_type == MediaType.VIDEO else 1800
+                
+                # Make sure timeout_value is a plain int
+                timeout_value = int(timeout_value)
+                
+                job = queue_service.enqueue_media_processing(
+                    asset_id=created_asset.id,
+                    storage_key=final_storage_key,
+                    media_type=data.media_type.value,
+                    job_timeout=timeout_value,
                 )
-                media_queue.enqueue(
-                    process_media_asset,
-                    created_asset.id,
-                    final_storage_key,
-                )
+                
+                if job:
+                    logger.info(f"Enqueued job {job.id} for asset {created_asset.id}")
+                else:
+                    logger.warning(f"Failed to enqueue job for asset {created_asset.id}")
 
             logger.info(f"Successfully created media asset {created_asset.id}")
 
-            response = MediaAssetResponse.model_validate(created_asset, from_attributes=True)
+            response = MediaAssetResponse.model_validate(
+                created_asset, from_attributes=True
+            )
             response.file_url = file_url
 
             return response
@@ -347,61 +327,52 @@ class MediaAssetService:
             # Clean up temp file if it exists
             if temp_storage_key:
                 try:
-                    await self.storage_service.delete_file(bucket=None, key=temp_storage_key)
+                    await self.storage_service.delete_file(
+                        bucket=None, key=temp_storage_key
+                    )
                     logger.info(f"Cleaned up temp file: {temp_storage_key}")
                 except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup temp file {temp_storage_key}: {cleanup_error}")
+                    logger.error(
+                        f"Failed to cleanup temp file {temp_storage_key}: {cleanup_error}"
+                    )
 
-            # Clean up final file if it exists (in case move succeeded but DB failed)
+            # Clean up final file if it exists
             if final_storage_key:
                 try:
-                    await self.storage_service.delete_file(bucket=None, key=final_storage_key)
+                    await self.storage_service.delete_file(
+                        bucket=None, key=final_storage_key
+                    )
                     logger.info(f"Cleaned up final file: {final_storage_key}")
                 except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup final file {final_storage_key}: {cleanup_error}")
+                    logger.error(
+                        f"Failed to cleanup final file {final_storage_key}: {cleanup_error}"
+                    )
 
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to upload media asset: {str(exc)}",
             )
 
-    async def _process_media_asset_background(self, asset_id: int, storage_key: str):
-        """Background task for media processing"""
-        try:
-            logger.info(f"Starting background processing for asset {asset_id}")
+    async def get_processing_status(self, asset_id: int) -> Dict[str, Any]:
+        """Get processing status for an asset"""
+        processing_jobs = await self.processing_job_repository.get_by_media_asset_id(
+            asset_id
+        )
 
-            # Update status to PROCESSING
-            media_asset = await self.media_asset_repository.get_by_id(asset_id)
-            if media_asset:
-                media_asset.status = MediaAssetStatus.PROCESSING
-                await self.media_asset_repository.update(media_asset)
-                await self.media_asset_repository.session.commit()
+        for job in processing_jobs:
+            if job.job_type == ProcessingJobType.TRANSCODE:
+                return {
+                    "asset_id": asset_id,
+                    "status": job.status.value,
+                    "progress": job.progress,
+                    "error_message": job.error_message,
+                }
 
-            # Here you would implement actual processing:
-            # - Generate thumbnails
-            # - Create different quality representations
-            # - Generate waveform for audio
-            # - Update duration if not provided
-
-            # For now, just mark as READY
-            if media_asset:
-                media_asset.status = MediaAssetStatus.READY
-                await self.media_asset_repository.update(media_asset)
-                await self.media_asset_repository.session.commit()
-
-            logger.info(f"Successfully processed asset {asset_id}")
-
-        except Exception as e:
-            logger.error(
-                f"Background processing failed for asset {asset_id}: {str(e)}",
-                exc_info=True,
-            )
-            # Update status to FAILED
-            media_asset = await self.media_asset_repository.get_by_id(asset_id)
-            if media_asset:
-                media_asset.status = MediaAssetStatus.FAILED
-                await self.media_asset_repository.update(media_asset)
-                await self.media_asset_repository.session.commit()
+        return {
+            "asset_id": asset_id,
+            "status": "no_active_job",
+            "progress": 0,
+        }
 
     async def create_media_asset_only(self, data: MediaAssetCreate):
         """Create media asset metadata only"""
@@ -487,7 +458,9 @@ class MediaAssetService:
         await FileValidator.validate_media_file(file, media_asset.media_type.value)
 
         # Get existing original file
-        old_file = await self.original_file_repository.get_by_media_asset_id(media_asset.id)
+        old_file = await self.original_file_repository.get_by_media_asset_id(
+            media_asset.id
+        )
 
         # Compute new file hash
         file_hash, file_size = await self._compute_file_hash(file)
@@ -510,13 +483,12 @@ class MediaAssetService:
         old_storage_key = old_file.storage_key if old_file else None
 
         try:
-            # Upload to temporary location
-            temp_storage_key = await self._generate_storage_key(
-                media_asset_id=media_asset.id,
-                filename=file.filename,
-                media_type=media_asset.media_type.value,
-                is_temp=True,
-            )
+            # Create MediaPaths for deterministic paths
+            paths = create_media_paths(media_asset)
+
+            # Generate temp key and final key
+            temp_storage_key = f"temp/{uuid.uuid4()}/{file.filename}"
+            final_storage_key = paths.original(file.filename)
 
             logger.info(f"Uploading new file to temp location: {temp_storage_key}")
             await self.storage_service.upload_file(
@@ -526,15 +498,6 @@ class MediaAssetService:
                 content_type=file.content_type or "application/octet-stream",
             )
 
-            # Generate final storage key
-            final_storage_key = await self._generate_storage_key(
-                media_asset_id=media_asset.id,
-                filename=file.filename,
-                media_type=media_asset.media_type.value,
-                is_temp=False,
-            )
-
-            # Move from temp to final location
             logger.info(f"Moving file from temp to final: {final_storage_key}")
             await self.storage_service.move_file(
                 source_bucket=None,
@@ -548,7 +511,6 @@ class MediaAssetService:
 
             # Update or create original file record
             if old_file:
-                # Update existing record
                 old_file.storage_key = final_storage_key
                 old_file.filename = file.filename
                 old_file.content_type = file.content_type or "application/octet-stream"
@@ -557,7 +519,6 @@ class MediaAssetService:
                 await self.original_file_repository.update(old_file)
                 original_file_record = old_file
             else:
-                # Create new record
                 original_file_record = OriginalMediaFile(
                     media_asset_id=media_asset.id,
                     storage_key=final_storage_key,
@@ -601,13 +562,22 @@ class MediaAssetService:
                 cache_key = f"{old_storage_key}_{settings.PRESIGNED_URL_EXPIRY}"
                 self._url_cache.pop(cache_key, None)
 
-            # Process new file in background
+            # Enqueue processing job using QueueService
             if settings.USE_BACKGROUND_TASKS:
-                background_tasks.add_task(
-                    self._process_media_asset_background,
-                    media_asset.id,
-                    final_storage_key,
+                # Calculate timeout as a plain integer
+                timeout_value = (
+                    3600 if media_asset.media_type.value == "video" else 1800
                 )
+
+                job = queue_service.enqueue_media_processing(
+                    asset_id=media_asset.id,
+                    storage_key=final_storage_key,
+                    media_type=media_asset.media_type.value,
+                    job_timeout=timeout_value,
+                )
+
+                if job:
+                    logger.info(f"Enqueued job {job.id} for asset {media_asset.id}")
 
             logger.info(f"Successfully updated file for asset {media_asset.id}")
 
@@ -616,7 +586,9 @@ class MediaAssetService:
                 final_storage_key, expires=settings.PRESIGNED_URL_EXPIRY
             )
 
-            response = MediaAssetResponse.model_validate(media_asset, from_attributes=True)
+            response = MediaAssetResponse.model_validate(
+                media_asset, from_attributes=True
+            )
             response.file_url = file_url
 
             return response
@@ -640,7 +612,7 @@ class MediaAssetService:
                         f"Failed to cleanup temp file {temp_storage_key}: {cleanup_error}"
                     )
 
-            # Clean up final file if it exists (in case move succeeded but DB failed)
+            # Clean up final file if it exists
             if final_storage_key:
                 try:
                     await self.storage_service.delete_file(
@@ -662,14 +634,14 @@ class MediaAssetService:
                 detail=f"Failed to update media asset file: {str(exc)}",
             )
 
+    async def _delete_file_with_logging(self, storage_key: str):
+        """Delete file with logging"""
+        try:
+            await self.storage_service.delete_file(bucket=None, key=storage_key)
+            logger.info(f"Successfully deleted old file: {storage_key}")
+        except Exception as e:
+            logger.error(f"Failed to delete old file {storage_key}: {str(e)}")
 
-async def _delete_file_with_logging(self, storage_key: str):
-    """Delete file with logging"""
-    try:
-        await self.storage_service.delete_file(bucket=None, key=storage_key)
-        logger.info(f"Successfully deleted old file: {storage_key}")
-    except Exception as e:
-        logger.error(f"Failed to delete old file {storage_key}: {str(e)}")
     async def delete_media_asset(
         self,
         identifier: str,

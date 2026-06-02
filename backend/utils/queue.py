@@ -1,13 +1,10 @@
 from redis import Redis
-from rq import Queue
+from rq import Queue, Retry
 from rq.job import Job
-from rq.registry import FinishedJobRegistry, FailedJobRegistry, StartedJobRegistry
 from typing import Optional, Dict, Any
-import json
 import logging
 
 from core.settings import get_settings
-
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -17,19 +14,19 @@ redis_conn = Redis.from_url(settings.REDIS_URL, decode_responses=True)
 media_queue = Queue(
     "media",
     connection=redis_conn,
-    default_timeout=3600,  
+    default_timeout=3600,
 )
 
 thumbnail_queue = Queue(
     "thumbnails",
     connection=redis_conn,
-    default_timeout=1800,  
+    default_timeout=1800,
 )
 
 waveform_queue = Queue(
     "waveform",
     connection=redis_conn,
-    default_timeout=900,  
+    default_timeout=900,
 )
 
 
@@ -54,7 +51,7 @@ class QueueService:
             asset_id: Media asset ID
             storage_key: S3 storage key
             media_type: 'video' or 'audio'
-            job_timeout: Job timeout in seconds
+            job_timeout: Job timeout in seconds (int)
 
         Returns:
             RQ Job object
@@ -62,13 +59,27 @@ class QueueService:
         from media.workers import process_media_asset
 
         try:
+            # Ensure timeout is a plain integer
+            if job_timeout is None:
+                timeout = 3600
+            elif isinstance(job_timeout, int):
+                timeout = job_timeout
+            else:
+                timeout = int(job_timeout) if hasattr(job_timeout, "__int__") else 3600
+
+            # Make sure timeout is a positive integer
+            timeout = max(60, min(timeout, 86400))
+
+            # Create Retry object instead of passing integer
+            retry = Retry(max=3, interval=60)  # Retry 3 times with 60 second intervals
+
             job = media_queue.enqueue(
                 process_media_asset,
                 args=(asset_id, storage_key, media_type),
-                job_timeout=job_timeout,
-                result_ttl=86400,  
-                failure_ttl=86400,  
-                retry=3,  
+                job_timeout=timeout,
+                result_ttl=86400,
+                failure_ttl=86400,
+                retry=retry,  # Pass Retry object instead of integer
                 description=f"Process {media_type} asset {asset_id}",
             )
             return job
@@ -83,12 +94,15 @@ class QueueService:
         from media.workers import generate_thumbnails
 
         try:
+            retry = Retry(max=3, interval=30)
+
             job = thumbnail_queue.enqueue(
                 generate_thumbnails,
                 args=(asset_id, storage_key, timestamps),
                 job_timeout=1800,
                 result_ttl=86400,
                 failure_ttl=86400,
+                retry=retry,
             )
             return job
         except Exception as e:
@@ -104,12 +118,15 @@ class QueueService:
         from media.workers import generate_waveform
 
         try:
+            retry = Retry(max=3, interval=30)
+
             job = waveform_queue.enqueue(
                 generate_waveform,
                 args=(asset_id, storage_key),
                 job_timeout=900,
                 result_ttl=86400,
                 failure_ttl=86400,
+                retry=retry,
             )
             return job
         except Exception as e:
@@ -147,7 +164,7 @@ class QueueService:
     def set_job_progress(self, job_id: str, progress: int):
         """Set job progress in Redis"""
         progress_key = f"job:{job_id}:progress"
-        self.redis_conn.setex(progress_key, 3600, progress)  
+        self.redis_conn.setex(progress_key, 3600, progress)
 
     def get_queue_stats(self) -> Dict[str, Any]:
         """Get statistics for all queues"""
@@ -156,7 +173,7 @@ class QueueService:
             stats[name] = {
                 "count": queue.count,
                 "is_empty": queue.is_empty,
-                "jobs": [job.id for job in queue.get_jobs()[:10]], 
+                "jobs": [job.id for job in queue.get_jobs()[:10]],
             }
         return stats
 
