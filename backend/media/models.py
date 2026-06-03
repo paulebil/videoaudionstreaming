@@ -136,6 +136,10 @@ class MediaAsset(BaseUtilityModel):
         "title",
         "description",
     ]
+    __searchable_fields__ = [
+        "title",
+        "description",
+    ]
 
     __ordering_fields__ = [
         "title",

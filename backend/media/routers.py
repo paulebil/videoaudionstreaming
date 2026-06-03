@@ -7,6 +7,7 @@ from fastapi import (
     File,
     Form,
     BackgroundTasks,  
+    HTTPException
 )
 from fastapi_pagination import Page
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,8 +30,10 @@ from .schemas import (
     MediaAssetUpdate,
     MediaAssetListFilters,
     MediaAssetResponse,
+    MediaAssetListItem
 )
 from .services import MediaAssetService
+from typing import Optional, List
 
 setup_logging()
 
@@ -201,3 +204,17 @@ async def delete_media_asset(
     """
     await service.delete_media_asset(identifier, hard=False)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@media_asset_router.get(
+    "/library",
+    status_code=status.HTTP_200_OK,
+    response_model=Page[MediaAssetListItem],
+)
+async def get_media_library(
+    filters: MediaAssetListFilters = Depends(),
+    service: MediaAssetService = Depends(get_media_asset_service),
+):
+    """Get media library with YouTube-like listing"""
+    return await service.library.get_media_asset_list(filters)
+

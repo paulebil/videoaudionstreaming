@@ -1,21 +1,28 @@
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 import hashlib
-import uuid
 import logging
-from typing import Optional, Dict, Any
+import uuid
+from typing import Any, Dict, Optional
 
-from sqlalchemy import func, select
-from fastapi import HTTPException, UploadFile, status, BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 from fastapi_pagination import Page
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+
+from core.settings import get_settings
+from media.paths import create_media_paths
+from utils.queue import queue_service
+from utils.s3storage import AsyncStorageService
+from utils.validators import FileValidator
 
 from .models import (
     MediaAsset,
+    MediaAssetStatus,
+    MediaType,
     OriginalMediaFile,
     ProcessingJob,
-    MediaAssetStatus,
-    ProcessingJobType,
     ProcessingJobStatus,
-    MediaType,
+    ProcessingJobType,
 )
 from .repository import (
     MediaAssetRepository,
@@ -24,15 +31,11 @@ from .repository import (
 )
 from .schemas import (
     MediaAssetCreate,
-    MediaAssetUpdate,
     MediaAssetListFilters,
+    MediaAssetListItem,
     MediaAssetResponse,
+    MediaAssetUpdate,
 )
-from utils.s3storage import AsyncStorageService
-from utils.validators import FileValidator
-from core.settings import get_settings
-from utils.queue import queue_service
-from media.paths import create_media_paths
 
 logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -51,6 +54,7 @@ class MediaAssetService:
         self.processing_job_repository = processing_job_repository
         self.storage_service = storage_service
         self._url_cache: Dict[str, tuple[str, datetime]] = {}
+        self._library_service = None
 
     async def _compute_file_hash(
         self,
@@ -295,17 +299,17 @@ class MediaAssetService:
             if settings.USE_BACKGROUND_TASKS:
                 # Calculate timeout as a plain integer
                 timeout_value = 3600 if data.media_type == MediaType.VIDEO else 1800
-                
+
                 # Make sure timeout_value is a plain int
                 timeout_value = int(timeout_value)
-                
+
                 job = queue_service.enqueue_media_processing(
                     asset_id=created_asset.id,
                     storage_key=final_storage_key,
                     media_type=data.media_type.value,
                     job_timeout=timeout_value,
                 )
-                
+
                 if job:
                     logger.info(f"Enqueued job {job.id} for asset {created_asset.id}")
                 else:
@@ -682,3 +686,219 @@ class MediaAssetService:
             logger.info(f"Soft deleted media asset {media_asset.id}")
 
         await self.media_asset_repository.session.commit()
+
+    @property
+    def library(self) -> MediaLibraryService:
+        """Get media library service instance"""
+        if self._library_service is None:
+            self._library_service = MediaLibraryService(
+                media_asset_repository=self.media_asset_repository,
+                storage_service=self.storage_service,
+                url_cache=self._url_cache,
+            )
+        return self._library_service
+
+
+class MediaLibraryService:
+    """
+    Service for media library operations including:
+    - Paginated list views (YouTube-like interface)
+    - Thumbnail management (multiple sizes)
+    - Streaming URL generation (HLS master playlists)
+    - Featured content selection
+    - Recommendations
+    - Continue watching (future)
+    """
+
+    def __init__(
+        self,
+        media_asset_repository: MediaAssetRepository,
+        storage_service: AsyncStorageService,
+        url_cache: Dict[str, tuple[str, datetime]],  
+    ):
+        self.media_asset_repository = media_asset_repository
+        self.storage_service = storage_service
+        self._url_cache = url_cache
+
+    async def _get_presigned_url_with_cache(
+        self, storage_key: str, expires: int = 3600
+    ) -> Optional[str]:
+        """Get presigned URL with caching - reuse from MediaAssetService"""
+        cache_key = f"{storage_key}_{expires}"
+        if cache_key in self._url_cache:
+            url, expiry = self._url_cache[cache_key]
+            if datetime.now() < expiry:
+                return url
+            else:
+                del self._url_cache[cache_key]
+
+        try:
+            url = await self.storage_service.generate_presigned_url(
+                bucket=None,
+                key=storage_key,
+                expires=expires,
+            )
+
+            from datetime import timedelta
+
+            expiry = datetime.now() + timedelta(seconds=expires - 60)
+            self._url_cache[cache_key] = (url, expiry)
+            return url
+        except Exception as e:
+            logger.error(f"Failed to generate presigned URL for {storage_key}: {e}")
+            return None
+
+    async def get_media_asset_list(
+        self, filters: MediaAssetListFilters, include_deleted: bool = False
+    ) -> Page[MediaAssetListItem]:
+        """
+        Get paginated list of media assets with all necessary information for display.
+        Similar to YouTube's video listing API.
+        """
+        stmt = self._get_filtered_statement(filters)
+
+        page_num = getattr(filters, "page", 1)
+        page_size = getattr(filters, "size", 20)  
+        offset = (page_num - 1) * page_size
+
+        count_stmt = select(func.count()).select_from(stmt.subquery())
+        total = await self.media_asset_repository.session.scalar(count_stmt)
+
+        paginated_stmt = (
+            stmt.options(
+                selectinload(MediaAsset.thumbnails),
+                selectinload(MediaAsset.representations),
+                selectinload(MediaAsset.original_file),
+            )
+            .offset(offset)
+            .limit(page_size)
+        )
+
+        result = await self.media_asset_repository.session.execute(paginated_stmt)
+        items = list(result.scalars().all())
+
+        processed_items = []
+        for asset in items:
+            list_item = await self._convert_to_list_item(asset)
+            processed_items.append(list_item)
+
+        total_pages = (total + page_size - 1) // page_size if page_size > 0 else 0
+
+        return Page(
+            items=processed_items,
+            total=total,
+            page=page_num,
+            size=page_size,
+            pages=total_pages,
+        )
+
+    def _get_filtered_statement(self, filters: MediaAssetListFilters):
+        """Build filtered query using repository's build_query method"""
+        return self.media_asset_repository.build_query(
+            search=filters.search,
+            full_text_search=filters.full_text_search,
+            filters=filters.to_repository_filters() or None,
+            ordering=filters.ordering,
+        )
+
+    async def _convert_to_list_item(self, asset: MediaAsset) -> MediaAssetListItem:
+        """
+        Convert a MediaAsset model to a MediaAssetListItem with all computed fields.
+        """
+        thumbnails = (
+            sorted(asset.thumbnails, key=lambda t: t.width) if asset.thumbnails else []
+        )
+
+        thumbnail_small = None
+        thumbnail_medium = None
+        thumbnail_large = None
+
+        for thumb in thumbnails:
+            if thumb.width <= 160:  
+                thumbnail_small = await self._get_presigned_url_with_cache(
+                    thumb.storage_key, expires=86400  
+                )
+            elif thumb.width <= 480:  
+                thumbnail_medium = await self._get_presigned_url_with_cache(
+                    thumb.storage_key, expires=86400
+                )
+            else:  
+                thumbnail_large = await self._get_presigned_url_with_cache(
+                    thumb.storage_key, expires=86400
+                )
+
+        if not thumbnail_small and thumbnails:
+            thumbnail_small = await self._get_presigned_url_with_cache(
+                thumbnails[-1].storage_key, expires=86400
+            )
+            thumbnail_medium = thumbnail_small
+            thumbnail_large = thumbnail_small
+
+        available_qualities = []
+        hls_master_playlist = None
+
+        if asset.representations:
+            sorted_reps = sorted(
+                asset.representations, key=lambda r: r.bitrate, reverse=True
+            )
+
+            for rep in sorted_reps:
+                if rep.quality.startswith("video_"):
+                    quality_name = rep.quality.replace("video_", "").replace("_", "p")
+                    if quality_name.endswith("p"):
+                        available_qualities.append(quality_name)
+
+            for rep in asset.representations:
+                if rep.is_master:
+                    hls_master_playlist = await self._get_presigned_url_with_cache(
+                        rep.playlist_path, expires=86400
+                    )
+                    break
+
+        if not hls_master_playlist and asset.representations:
+            hls_master_playlist = await self._get_hls_master_playlist_url(asset.id)
+
+        view_count = 0 
+        like_count = 0  
+
+        return MediaAssetListItem(
+            id=asset.id,
+            base_uuid=asset.base_uuid,
+            title=asset.title,
+            description=asset.description,
+            media_type=asset.media_type,
+            status=asset.status,
+            duration_seconds=asset.duration_seconds,
+            thumbnail_small=thumbnail_small,
+            thumbnail_medium=thumbnail_medium,
+            thumbnail_large=thumbnail_large,
+            hls_master_playlist=hls_master_playlist,
+            dash_manifest=None,  
+            available_qualities=available_qualities,
+            view_count=view_count,
+            like_count=like_count,
+            created_at=asset.created_at,
+            updated_at=asset.updated_at,
+        )
+
+    async def _get_hls_master_playlist_url(self, asset_id: int) -> Optional[str]:
+        """
+        Generate or retrieve HLS master playlist URL for an asset.
+        If master playlist exists in storage, return presigned URL.
+        """
+        asset = await self.media_asset_repository.get_by_id(asset_id)
+        if not asset:
+            return None
+
+        paths = create_media_paths(asset)
+        master_playlist_key = paths.master_playlist()
+
+        try:
+            return await self._get_presigned_url_with_cache(
+                master_playlist_key, expires=86400
+            )
+        except Exception as e:
+            logger.warning(
+                f"Could not generate master playlist URL for asset {asset_id}: {e}"
+            )
+            return None

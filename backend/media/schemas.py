@@ -148,64 +148,54 @@ class MediaAssetResponse(BaseModel):
     }
 
 
-class OriginalMediaFileCreate(BaseModel):
-    media_asset_id: int = Field(..., gt=0)
 
-    storage_key: str = Field(
-        ...,
-        min_length=1,
-        max_length=1000,
-    )
+class MediaAssetListItem(BaseModel):
+    """
+    Enhanced response for media asset list (YouTube-like interface)
+    Contains all information needed for video cards/grid display
+    """
 
-    filename: str = Field(
-        ...,
-        min_length=1,
-        max_length=500,
-    )
-
-    content_type: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-    )
-
-    size_bytes: int = Field(
-        ...,
-        ge=0,
-    )
-
-    checksum: str = Field(
-        ...,
-        min_length=1,
-        max_length=255,
-    )
-
-    model_config = {
-        "from_attributes": True,
-        "json_schema_extra": {
-            "example": {
-                "media_asset_id": 1,
-                "storage_key": "media/videos/intro-fastapi.mp4",
-                "filename": "intro-fastapi.mp4",
-                "content_type": "video/mp4",
-                "size_bytes": 104857600,
-                "checksum": "5d41402abc4b2a76b9719d911017c592",
-            }
-        },
-    }
-
-
-class OriginalMediaFileResponse(BaseModel):
     id: int
     base_uuid: uuid.UUID
+    title: str
+    description: str | None = None
 
-    media_asset_id: int
+    media_type: MediaType
+    status: MediaAssetStatus
+    duration_seconds: int | None = None
 
-    storage_key: str
-    filename: str
-    content_type: str
-    size_bytes: int
-    checksum: str
+    thumbnail_small: str | None = Field(
+        None, description="Small thumbnail (120x68) for list/card views"
+    )
+    thumbnail_medium: str | None = Field(
+        None, description="Medium thumbnail (320x180) for grid/preview"
+    )
+    thumbnail_large: str | None = Field(
+        None, description="Large thumbnail (640x360) for hero/featured"
+    )
+
+    hls_master_playlist: str | None = Field(
+        None, description="HLS master playlist URL for adaptive streaming"
+    )
+    dash_manifest: str | None = Field(
+        None, description="DASH manifest URL (future support)"
+    )
+
+    available_qualities: list[str] = Field(
+        default_factory=list,
+        description="Available video qualities (e.g., ['1080p', '720p', '480p'])",
+    )
+
+    view_count: int = Field(0, description="Total view count")
+    like_count: int = Field(0, description="Total like count")
+    comment_count: int = Field(0, description="Total comment count")
+
+    is_liked: bool | None = Field(
+        None, description="Whether current user has liked this video"
+    )
+    watch_progress: int | None = Field(
+        None, description="Watch progress in seconds (for continue watching)"
+    )
 
     created_at: datetime
     updated_at: datetime
@@ -215,15 +205,27 @@ class OriginalMediaFileResponse(BaseModel):
         "json_schema_extra": {
             "example": {
                 "id": 1,
-                "base_uuid": "c4d72f30-dc6a-4b4e-9485-5ef43f0f58f9",
-                "media_asset_id": 1,
-                "storage_key": "media/videos/intro-fastapi.mp4",
-                "filename": "intro-fastapi.mp4",
-                "content_type": "video/mp4",
-                "size_bytes": 104857600,
-                "checksum": "5d41402abc4b2a76b9719d911017c592",
-                "created_at": "2026-05-30T12:00:00Z",
-                "updated_at": "2026-05-30T12:00:00Z",
+                "base_uuid": "550e8400-e29b-41d4-a716-446655440000",
+                "title": "Introduction to FastAPI",
+                "description": "Learn FastAPI from scratch",
+                "media_type": "video",
+                "status": "ready",
+                "duration_seconds": 840,
+                "thumbnail_small": "https://storage.example.com/thumbnails/1_1s.jpg",
+                "thumbnail_medium": "https://storage.example.com/thumbnails/1_30s.jpg",
+                "thumbnail_large": "https://storage.example.com/thumbnails/1_60s.jpg",
+                "hls_master_playlist": "https://storage.example.com/hls/master.m3u8",
+                "dash_manifest": None,
+                "available_qualities": ["1080p", "720p", "480p"],
+                "view_count": 1523,
+                "like_count": 342,
+                "comment_count": 56,
+                "is_liked": None,
+                "watch_progress": None,
+                "created_at": "2026-06-03T10:00:00Z",
+                "updated_at": "2026-06-03T10:00:00Z",
             }
         },
     }
+
+
