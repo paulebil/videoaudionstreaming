@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Streaming Platform</title>
+    <link rel="stylesheet" href="css/style.css">
+    <link href="https://cdn.jsdelivr.net/npm/hls.js@latest" rel="preload" as="script">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <h1>Media Streaming Platform</h1>
+
+            <div class="search-bar">
+                <input
+                    type="text"
+                    id="searchInput"
+                    placeholder="Search media..."
+                    class="search-input"
+                >
+
+                <select id="mediaTypeFilter" class="filter-select">
+                    <option value="">All Types</option>
+                    <option value="video">Videos</option>
+                    <option value="audio">Audio</option>
+                </select>
+
+                <button id="searchBtn" class="search-btn">
+                    Search
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+
+            <!-- Player Section -->
+            <div class="player-section" id="playerSection" style="display: none;">
+                <div class="video-container">
+                    <video id="videoPlayer" controls class="video-player"></video>
+
+                    <div class="video-info" id="videoInfo">
+                        <h2 id="currentTitle"></h2>
+
+                        <p id="currentDescription"></p>
+
+                        <div class="video-stats">
+                            <span>
+                                Views:
+                                <span id="viewCount">0</span>
+                            </span>
+
+                            <span>
+                                Likes:
+                                <span id="likeCount">0</span>
+                            </span>
+
+                            <span>
+                                Duration:
+                                <span id="videoDuration"></span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Media Library -->
+            <div class="videos-section">
+                <h2>Media Library</h2>
+
+                <div class="videos-grid" id="videosGrid">
+                    <div class="loading">Loading media...</div>
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination" id="pagination">
+                    <button id="prevPage" class="page-btn">
+                        Previous
+                    </button>
+
+                    <span id="pageInfo" class="page-info">
+                        Page 1 of 1
+                    </span>
+
+                    <button id="nextPage" class="page-btn">
+                        Next
+                    </button>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="js/app.js"></script>
+</body>
+</html>
