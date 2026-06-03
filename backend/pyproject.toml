@@ -17,6 +17,7 @@ dependencies = [
     "redis>=8.0.0",
     "rq>=2.9.0",
     "rq-dashboard>=0.8.7",
+    "rq-scheduler>=0.14.0",
     "sqlalchemy>=2.0.50",
     "typer>=0.26.2",
 ]

@@ -47,6 +47,7 @@ SyncSessionLocal = sessionmaker(
     expire_on_commit=False,
 )
 
+
 def update_job_progress(progress: int):
     """Update job progress in Redis"""
     job = get_current_job()
@@ -354,6 +355,8 @@ def generate_thumbnails(
 
         thumbnail_cmd = [
             "ffmpeg",
+            "-nostdin",  
+            "-y",  
             "-i",
             video_path,
             "-ss",
@@ -362,10 +365,19 @@ def generate_thumbnails(
             "1",
             "-vf",
             "scale=640:-1",
-            "-y",
+            "-loglevel",
+            "error", 
             thumbnail_path,
         ]
-        subprocess.run(thumbnail_cmd, capture_output=True, check=True)
+
+        logger.info(f"Generating thumbnail at {timestamp}s for asset {asset_id}")
+        result = subprocess.run(thumbnail_cmd, capture_output=True, text=True)
+
+        if result.returncode != 0:
+            logger.error(f"FFmpeg error: {result.stderr}")
+            raise Exception(
+                f"Failed to generate thumbnail at {timestamp}s: {result.stderr}"
+            )
 
         thumbnail_key = paths.thumbnail_at_time(timestamp)
         with open(thumbnail_path, "rb") as f:
@@ -460,7 +472,13 @@ def generate_hls_streams(
             quality_dir = os.path.join(temp_dir, quality.value)
             os.makedirs(quality_dir, exist_ok=True)
 
-            cmd = ["ffmpeg", "-i", video_path]
+            cmd = [
+                "ffmpeg",
+                "-nostdin", 
+                "-y",  
+                "-i",
+                video_path,
+            ]
 
             if quality.is_video:
                 resolution = quality.resolution
@@ -510,11 +528,22 @@ def generate_hls_streams(
                     "0",
                     "-hls_segment_filename",
                     f"{quality_dir}/segment_%04d.ts",
+                    "-loglevel",
+                    "error",  
                     f"{quality_dir}/index.m3u8",
                 ]
             )
 
-            subprocess.run(cmd, capture_output=True, check=True)
+            logger.info(f"Generating HLS stream for quality: {quality.value}")
+            result = subprocess.run(cmd, capture_output=True, text=True)
+
+            if result.returncode != 0:
+                logger.error(
+                    f"FFmpeg error for quality {quality.value}: {result.stderr}"
+                )
+                raise Exception(
+                    f"Failed to generate HLS stream for {quality.value}: {result.stderr}"
+                )
 
             playlist_key = paths.hls_playlist(quality)
             s3_client.upload_file(
@@ -627,18 +656,26 @@ def process_audio(
     update_job_progress(50)
 
     waveform_path = f"/tmp/waveform_{asset_id}.png"
+    
     waveform_cmd = [
         "ffmpeg",
+        "-nostdin",  
+        "-y",
         "-i",
         audio_path,
         "-filter_complex",
         "showwavespic=s=1600x400:colors=blue|cyan",
         "-frames:v",
         "1",
-        "-y",
+        "-loglevel",
+        "error",
         waveform_path,
     ]
-    subprocess.run(waveform_cmd, capture_output=True, check=True)
+    result = subprocess.run(waveform_cmd, capture_output=True, text=True)
+
+    if result.returncode != 0:
+        logger.error(f"FFmpeg error for waveform: {result.stderr}")
+        raise Exception(f"Failed to generate waveform: {result.stderr}")
 
     waveform_key = paths.waveform()
     with open(waveform_path, "rb") as f:

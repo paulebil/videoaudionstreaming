@@ -9,6 +9,7 @@ from sqlalchemy import (
     String,
     Text,
     text,
+    Boolean,
 )
 from sqlalchemy.dialects.postgresql import BIGINT
 from sqlalchemy.orm import Mapped, declared_attr, mapped_column, relationship
@@ -341,6 +342,18 @@ class MediaRepresentation(SoftDeleteMixin):
         String(1000),
         nullable=False,
         unique=True,
+    )
+
+    is_master: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=text("false"),
+    )
+
+    resolution: Mapped[str | None] = mapped_column(
+        String(50),
+        nullable=True,
     )
 
     media_asset: Mapped["MediaAsset"] = relationship(
