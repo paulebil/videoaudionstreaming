@@ -1,0 +1,22 @@
+{
+  "name": "fastapi_debezium_pub-connector",
+  "config": {
+    "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+    "database.hostname": "postgres",
+    "database.port": "5432",
+    "database.user": "videoaudionstreaming",
+    "database.password": "strong_postgres_password",
+    "database.dbname": "videoaudionstreaming_db",
+    "topic.prefix": "fastapi_cdc",
+    "plugin.name": "pgoutput",
+    "publication.name": "fastapi_debezium_pub",
+    "slot.name": "fastapi_debezium_pub_slot",
+    "snapshot.mode": "initial",
+    "table.include.list": "public.media_assets,public.original_media_files,public.processing_jobs,public.media_representations,public.streaming_manifests,public.thumbnails",
+    "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+    "key.converter.schemas.enable": "false",
+    "value.converter.schemas.enable": "false",
+    "tombstones.on.delete": "false"
+  }
+}

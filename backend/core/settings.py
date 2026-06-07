@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int
     REFRESH_TOKEN_EXPIRE_MINUTES: int
 
+    DB_HOST: str
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_NAME: str
+
     SMTP_HOST: str
     SMTP_PORT: int
     SMTP_FROM: EmailStr
