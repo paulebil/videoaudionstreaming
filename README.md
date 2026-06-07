@@ -90,7 +90,7 @@ videoaudionstreaming/
 ### 1. Clone project
 
 ```bash
-git clone <your-repo-url>
+git clone git@github.com:paulebil/videoaudionstreaming.git
 cd videoaudionstreaming
 ```
 
@@ -120,8 +120,12 @@ Services started:
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -e .
-```
+
+# Install uv if not installed
+curl -Ls https://astral.sh/uv/install.sh | sh
+
+# Install dependencies using uv
+uv pip install -e .
 
 ---
 
@@ -167,7 +171,15 @@ rq worker media thumbnails waveform
 
 ---
 
-### 8. Start frontend (optional)
+### 8. Start RQ dashboard (optional)
+
+```bash
+rq-dashboard
+```
+
+---
+
+### 9. Start frontend (optional)
 
 ```bash
 cd frontend
@@ -179,7 +191,7 @@ Frontend:
 
 ---
 
-### 9. Register Debezium connector
+### 10. Register Debezium connector
 
 ```bash
 curl -X POST http://localhost:8083/connectors \
