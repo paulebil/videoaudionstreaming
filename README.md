@@ -126,6 +126,7 @@ curl -Ls https://astral.sh/uv/install.sh | sh
 
 # Install dependencies using uv
 uv pip install -e .
+```
 
 ---
 
