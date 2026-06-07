@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: docker.io/library/postgres:16-alpine
+    image: postgres:16-alpine
     container_name: videoaudionstreaming-postgres
     restart: unless-stopped
     environment:
@@ -11,66 +11,51 @@ services:
       - "5432:5432"
     volumes:
       - videoaudionstreaming_postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 10s
+    command:
+      - postgres
+      - -c
+      - wal_level=logical
+      - -c
+      - max_wal_senders=10
+      - -c
+      - max_replication_slots=10
 
   adminer:
-    image: docker.io/library/adminer:latest
+    image: adminer:latest
     container_name: videoaudionstreaming-adminer
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     ports:
       - "8080:8080"
-    environment:
-      ADMINER_DEFAULT_SERVER: postgres
 
   redis:
-    image: docker.io/library/redis:7-alpine
+    image: redis:7-alpine
     container_name: videoaudionstreaming-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - videoaudionstreaming_redis_data:/data
-    command: >
-      redis-server
-      --appendonly yes
-      --save 60 1000
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    command: redis-server --appendonly yes
 
   redisinsight:
-    image: docker.io/redis/redisinsight:latest
+    image: redis/redisinsight:latest
     container_name: videoaudionstreaming-redisinsight
     restart: unless-stopped
     depends_on:
-      redis:
-        condition: service_healthy
+      - redis
     ports:
       - "5540:5540"
     volumes:
       - videoaudionstreaming_redisinsight_data:/data
 
   rustfs:
-    image: docker.io/rustfs/rustfs:latest
+    image: rustfs/rustfs:latest
     container_name: videoaudionstreaming-rustfs
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
       RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
@@ -82,8 +67,57 @@ services:
       - videoaudionstreaming_rustfs_data:/data
     command: server /data --console-address ":9001"
 
+  kafka:
+    image: docker.io/apache/kafka:3.8.0
+    container_name: videoaudionstreaming-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+    volumes:
+      - videoaudionstreaming_kafka_data:/var/lib/kafka/data
+
+  connect:
+    image: docker.io/debezium/connect:2.5
+    container_name: videoaudionstreaming-connect
+    restart: unless-stopped
+    depends_on:
+      - kafka
+      - postgres
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092
+      GROUP_ID: videoaudionstreaming-connect-group
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_status
+
+  kafka-ui:
+    image: docker.io/provectuslabs/kafka-ui:v0.7.2
+    container_name: videoaudionstreaming-kafka-ui
+    restart: unless-stopped
+    depends_on:
+      - kafka
+    ports:
+      - "8090:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+
 volumes:
   videoaudionstreaming_postgres_data:
-  videoaudionstreaming_rustfs_data:
   videoaudionstreaming_redis_data:
   videoaudionstreaming_redisinsight_data:
+  videoaudionstreaming_rustfs_data:
+  videoaudionstreaming_kafka_data:
