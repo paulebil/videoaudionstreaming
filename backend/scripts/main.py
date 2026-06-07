@@ -34,14 +34,12 @@ def run_all(
     """
 
     async def runner():
-        print("🚀 Running full system bootstrap...\n")
+        print("Running full system bootstrap...\n")
 
-        # 1. DB triggers
-        print("1️⃣ Installing DB triggers...")
+        print("1. Installing DB triggers...")
         await DbTriggers().install()
 
-        # 2. Debezium setup
-        print("\n2️⃣ Setting up Debezium CDC...")
+        print("\n2. Setting up Debezium CDC...")
         service = DebeziumService()
 
         await service.setup(
@@ -50,14 +48,14 @@ def run_all(
             output_file=output,
         )
 
-        print("\n🎉 System bootstrap complete!")
+        print("\nSystem bootstrap complete!")
 
     asyncio.run(runner())
 
 
 @app.command()
 def hello():
-    typer.echo("👋 Hello from VideoAudioStreaming CLI!")
+    typer.echo("Hello from VideoAudioStreaming CLI!")
 
 
 if __name__ == "__main__":

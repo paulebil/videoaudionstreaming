@@ -20,7 +20,7 @@ class BaseCommand(ABC):
         typer.echo(typer.style(message, fg=typer.colors.CYAN))
 
     def print_status(self, name: str, exists: bool) -> None:
-        status = "✅ Exists" if exists else "❌ Missing"
+        status = "Exists" if exists else "Missing"
         color = typer.colors.GREEN if exists else typer.colors.RED
 
         typer.echo(
@@ -34,7 +34,7 @@ class BaseCommand(ABC):
         typer.echo("\n" + "=" * 60)
         typer.echo(
             typer.style(
-                "📊 Summary",
+                "Summary",
                 fg=typer.colors.MAGENTA,
                 bold=True,
             )
@@ -47,7 +47,7 @@ class BaseCommand(ABC):
         typer.echo("=" * 60)
 
     def print_next_steps(self, steps: List[str]) -> None:
-        typer.echo("\n📋 Next Steps")
+        typer.echo("\nNext Steps")
 
         for index, step in enumerate(steps, start=1):
             typer.echo(

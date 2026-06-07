@@ -41,7 +41,7 @@ class DebeziumService:
         replica_identity: str,
         output_file: str,
     ):
-        print(f"🚀 Setting up Debezium CDC...")
+        print("Setting up Debezium CDC...")
 
         models = self.get_all_models()
 
@@ -51,9 +51,8 @@ class DebeziumService:
 
         async with session_factory() as session:
 
-            # REPLICA IDENTITY
             if replica_identity == "FULL":
-                print("🔧 Setting REPLICA IDENTITY FULL...")
+                print("Setting REPLICA IDENTITY FULL...")
 
                 for i, model in enumerate(tracked, 1):
                     table = model.__tablename__
@@ -62,14 +61,13 @@ class DebeziumService:
                         await session.execute(
                             text(f'ALTER TABLE "{table}" REPLICA IDENTITY FULL;')
                         )
-                        print(f"  ✓ {i}/{len(tracked)} {table}")
+                        print(f"  {i}/{len(tracked)} {table}")
                     except Exception as e:
-                        print(f"  ✗ {table}: {e}")
+                        print(f"  Failed {table}: {e}")
 
                 await session.commit()
 
-            # Publication
-            print(f"📚 Creating publication {publication_name}")
+            print(f"Creating publication {publication_name}")
 
             await session.execute(
                 text(f"DROP PUBLICATION IF EXISTS {publication_name};")
@@ -83,12 +81,11 @@ class DebeziumService:
 
             await session.commit()
 
-        # Generate config - FIXED: database.hostname should be the host, not the port
         config = {
             "name": f"{publication_name}-connector",
             "config": {
                 "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
-                "database.hostname": "postgres",  # ← FIXED: use 'postgres' as hostname (Docker service name)
+                "database.hostname": "postgres",
                 "database.port": "5432",
                 "database.user": settings.DB_USER,
                 "database.password": settings.DB_PASSWORD,
@@ -112,6 +109,6 @@ class DebeziumService:
         with open(output_file, "w") as f:
             json.dump(config, f, indent=2)
 
-        print(f"✅ Config saved: {output_file}")
+        print(f"Config saved: {output_file}")
 
         return config
