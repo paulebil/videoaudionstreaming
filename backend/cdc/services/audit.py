@@ -1,0 +1,3 @@
+class AuditService:
+
+    async def record(self, event): ...
