@@ -1,16 +1,16 @@
-from services.redis import RedisService
+# from services.redis import RedisService
 
 
-class RedisHandler:
+# class RedisHandler:
 
-    CACHEABLE_TABLES = {"media_assets", "processing_jobs", "thumbnails"}
+#     CACHEABLE_TABLES = {"media_assets", "processing_jobs", "thumbnails"}
 
-    def __init__(self):
-        self.service = RedisService()
+#     def __init__(self):
+#         self.service = RedisService()
 
-    async def handle(self, event):
+#     async def handle(self, event):
 
-        if event.table not in self.CACHEABLE_TABLES:
-            return
+#         if event.table not in self.CACHEABLE_TABLES:
+#             return
 
-        await self.service.upsert(event)
+#         await self.service.upsert(event)

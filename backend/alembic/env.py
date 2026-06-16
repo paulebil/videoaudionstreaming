@@ -11,6 +11,7 @@ from utils.models import Base
 
 # Ensure model modules are imported so metadata contains all tables.
 from media import models as media_models  # noqa: F401
+from system import models as system_models
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
