@@ -202,6 +202,14 @@ curl -X POST http://localhost:8083/connectors \
 
 ---
 
+### 11. Run the Kafka worker(Consumer)
+
+```bash
+ python -m cdc.worker
+```
+
+---
+
 ## 🧪 Common Commands
 
 ### Database
@@ -325,6 +333,7 @@ RUSTFS_ENDPOINT=http://localhost:9000
 | PostgreSQL | 5432 |
 | Redis | 6379 |
 | Kafka | 9092 |
+| Kafka | 29092 |
 | Debezium | 8083 |
 | Kafka UI | 8090 |
 | RustFS | 9000 |
