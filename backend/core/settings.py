@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     SYNC_DATABASE_URL: str
     FRONTEND_HOST: str
 
-    # JWT Secret key
     JWT_SECRET: str
     JWT_ALGORITHM: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int
@@ -42,9 +41,8 @@ class Settings(BaseSettings):
     RUSTFS_BUCKET_NAME: str
     RUSTFS_ENDPOINT: str
 
-    # File upload settings
-    MAX_VIDEO_SIZE: int = 1024 * 1024 * 1024  # 1GB
-    MAX_AUDIO_SIZE: int = 100 * 1024 * 1024   # 100MB
+    MAX_VIDEO_SIZE: int = 1024 * 1024 * 1024  
+    MAX_AUDIO_SIZE: int = 100 * 1024 * 1024   
     ALLOWED_VIDEO_TYPES: list = ["video/mp4", "video/mpeg", "video/quicktime"]
     ALLOWED_AUDIO_TYPES: list = ["audio/mpeg", "audio/mp4", "audio/wav"]
 
@@ -55,7 +53,6 @@ class Settings(BaseSettings):
 
     ELASTICSEARCH_URL: str
 
-    # Logging
     LOG_LEVEL: str = "INFO"
 
     model_config = SettingsConfigDict(
