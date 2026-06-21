@@ -53,6 +53,8 @@ class Settings(BaseSettings):
 
     REDIS_URL: str
 
+    ELASTICSEARCH_URL: str
+
     # Logging
     LOG_LEVEL: str = "INFO"
 

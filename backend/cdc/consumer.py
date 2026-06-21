@@ -3,7 +3,7 @@ import logging
 
 from cdc.events.parser import parse_message
 from cdc.handlers.audit import AuditHandler
-# from cdc.handlers.elasticsearch import ElasticsearchHandler
+from cdc.handlers.elasticsearch import ElasticsearchHandler
 # from cdc.handlers.redis import RedisHandler
 
 logger = logging.getLogger(__name__)
@@ -21,7 +21,7 @@ class CDCConsumer:
         ]
 
         self.best_effort_handlers = [
-            # ElasticsearchHandler(),
+            ElasticsearchHandler(),
             # RedisHandler(),
         ]
 

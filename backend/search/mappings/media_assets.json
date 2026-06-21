@@ -1,0 +1,102 @@
+{
+  "settings": {
+    "analysis": {
+      "tokenizer": {
+        "autocomplete_tokenizer": {
+          "type": "edge_ngram",
+          "min_gram": 2,
+          "max_gram": 20,
+          "token_chars": [
+            "letter",
+            "digit"
+          ]
+        }
+      },
+      "analyzer": {
+        "autocomplete": {
+          "type": "custom",
+          "tokenizer": "autocomplete_tokenizer",
+          "filter": [
+            "lowercase"
+          ]
+        }
+      }
+    }
+  },
+
+  "mappings": {
+    "properties": {
+
+      "id": {
+        "type": "keyword"
+      },
+
+      "title": {
+        "type": "text",
+
+        "fields": {
+          "keyword": {
+            "type": "keyword"
+          },
+
+          "autocomplete": {
+            "type": "text",
+            "analyzer": "autocomplete",
+            "search_analyzer": "standard"
+          }
+        }
+      },
+
+      "description": {
+        "type": "text"
+      },
+
+      "media_type": {
+        "type": "keyword"
+      },
+
+      "status": {
+        "type": "keyword"
+      },
+
+      "duration_seconds": {
+        "type": "integer"
+      },
+
+      "created_at": {
+        "type": "date"
+      },
+
+      "thumbnail_storage_key": {
+        "type": "keyword",
+        "index": false
+      },
+
+      "representations": {
+        "type": "nested",
+        "properties": {
+          "quality": {
+            "type": "keyword"
+          },
+
+          "bitrate": {
+            "type": "integer"
+          },
+
+          "width": {
+            "type": "integer"
+          },
+
+          "height": {
+            "type": "integer"
+          },
+
+          "resolution": {
+            "type": "keyword"
+          }
+        }
+      }
+
+    }
+  }
+}
